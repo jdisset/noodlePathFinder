@@ -7,5 +7,7 @@ cd build && cmake .. && make
 ```
 
 # Usage
+
 `./noodlepath graphFile  > pathFile` to generate a pathFile from a graphFile
+
 `./noodlepath graphFile pathFile` to print out an evaluation of the pathFile (turning costs + total distance) 
