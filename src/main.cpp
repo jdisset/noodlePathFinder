@@ -36,6 +36,26 @@ size_t getNumberOfEdges(const std::vector<GraphNode>& graph) {
 	return visitedEdges.size();
 }
 
+// finds the best unvisited edge. Returns -1 if all visited
+template <class G, class V, class F>
+std::tuple<size_t, double, bool> findBestNext(size_t prevNode, size_t currentNode,
+                                              const G& gr, const V& visited,
+                                              const F& heuristic) {
+	int nextNode = -1;
+	double minHeuristic = std::numeric_limits<double>::max();
+	for (auto& nId : gr[currentNode].connected) {
+		if (!visited.count(std::minmax(currentNode, nId))) {
+			double eurVal = heuristic(gr, prevNode, currentNode, nId);
+			if (eurVal < minHeuristic) {
+				nextNode = nId;
+				minHeuristic = eurVal;
+			}
+		}
+	}
+	bool hasUnvisitedEdges = (nextNode >= 0);
+	return std::make_tuple(nextNode, minHeuristic, hasUnvisitedEdges);
+}
+
 template <typename F>
 std::vector<size_t> eulerOpt(const std::vector<GraphNode>& graph, const F& heuristic) {
 	// a variation of hierholzer's algorithm with an added heuristic function
@@ -56,63 +76,54 @@ std::vector<size_t> eulerOpt(const std::vector<GraphNode>& graph, const F& heuri
 	} else if (oddNodes.size() > 0)
 		startNode = oddNodes[0];
 
-	// then we start looking for subcicle
+	// then we start looking for subcircles
 	std::vector<size_t> eulerPath;
 	std::unordered_set<std::pair<size_t, size_t>, pair_hash> visitedEdges;
 	eulerPath.push_back(startNode);
 	size_t startNodeIndex = 0;
 
-
-
-
-
-
-
-
-
 	while (visitedEdges.size() < totalEdgeNumber) {
 		std::vector<size_t> subCircle;
 		subCircle.push_back(startNode);
 		do {
-			// we find the next node that minimises the heuristic
-			size_t nextNode;
-			bool foundNext = false;
-			double minHeuristic = std::numeric_limits<double>::max();
-			size_t currentNode = subCircle.back();
-			for (auto& nId : graph[currentNode].connected) {
-				if (!visitedEdges.count(std::minmax(currentNode, nId))) {
-					double eurVal = heuristic(graph, subCircle, nId);
-					if (eurVal < minHeuristic) {
-						nextNode = nId;
-						minHeuristic = eurVal;
-						foundNext = true;
-					}
-				}
+			// we need the previous node for the heuristic to work
+			size_t prevNode = subCircle.front();
+			if (subCircle.size() < 2) {
+				if (startNodeIndex > 0) prevNode = eulerPath[startNodeIndex - 1];
+			} else {
+				prevNode = subCircle[subCircle.size() - 2];
 			}
-			std::cerr << "Chose " << nextNode << std::endl;
-			assert(foundNext);
+			size_t currentNode = subCircle.back();
+			// we find the next node that minimises the heuristic
+			auto bestNext = findBestNext(prevNode, currentNode, graph, visitedEdges, heuristic);
+			size_t nextNode = std::get<0>(bestNext);
+			assert(std::get<2>(bestNext));
 			visitedEdges.insert(std::minmax(currentNode, nextNode));
 			subCircle.push_back(nextNode);
 		} while (subCircle.back() != startNode);
+
 		// subcircle formed
 		// we first replace startNode in eulerGraph by this new subcircle
 		eulerPath.insert(eulerPath.begin() + (long)startNodeIndex, subCircle.begin(),
 		                 subCircle.end());
-		// we then need to find the next unvisited edge from which to start
-		// TODO: use the heuristic to find the node with the best unvisited edge... for now we
-		// just take the first with any unvisited edge
-		for (startNodeIndex = 0; startNodeIndex < eulerPath.size(); ++startNodeIndex) {
-			bool hasUnvisitedEdge = false;
-			startNode = eulerPath[startNodeIndex];
-			for (auto& nId : graph[startNode].connected) {
-				if (!visitedEdges.count(std::minmax(startNode, nId))) {
-					hasUnvisitedEdge = true;
-					break;
+		// we then need to find the next unvisited edge with the best possible next edge from
+		// which to start
+		size_t bestStartNodeIndex = 0;
+		double bestHeuristic = std::numeric_limits<double>::max();
+		for (size_t i = 0; i < eulerPath.size(); ++i) {
+			size_t prevNode = eulerPath[0];
+			if (i > 1) prevNode = eulerPath[i - 1];
+			size_t currentNode = eulerPath[i];
+			auto bestNext = findBestNext(prevNode, currentNode, graph, visitedEdges, heuristic);
+			if (std::get<2>(bestNext)) {  // if it has unconnected edges
+				if (std::get<1>(bestNext) <= bestHeuristic) {
+					bestHeuristic = std::get<1>(bestNext);
+					bestStartNodeIndex = i;
 				}
 			}
-			if (hasUnvisitedEdge)
-				break;
 		}
+		startNodeIndex = bestStartNodeIndex;
+		startNode = eulerPath[startNodeIndex];
 		// now startNodeIndex points to the next startNode
 	}
 	return eulerPath;
@@ -144,21 +155,44 @@ std::vector<GraphNode> readGraph(std::string filePath) {
 	return graph;
 }
 
+std::vector<size_t> readPath(std::string filePath) {
+	std::fstream infile(filePath);
+	size_t i;
+	std::vector<size_t> p;
+	while (infile >> i) p.push_back(i);
+	return p;
+}
+
 int main(int argc, char** argv) {
 	if (argc <= 1) {
 		std::cerr << "Usage: " << argv[0] << " graphFilePath" << std::endl;
 		return 1;
 	}
-	auto graph = readGraph(argv[1]);
-	auto dumbHeuristic = [](const auto&, const auto&, size_t) { return 0.0; };
-	auto angleHeuristic = [](const auto& g, const auto& p, size_t n) {
-		if (p.size() < 2) return 0.0;
-		auto prevEdge = g[p.back()].coords - g[p[p.size() - 2]].coords;
-		auto nextEdge = g[n].coords - g[p.back()].coords;
+
+	auto dumbHeuristic = [](const auto& g, size_t p, size_t c, size_t n) { return 0; };
+	auto angleHeuristic = [](const auto& g, size_t p, size_t c, size_t n) {
+		auto prevEdge = g[c].coords - g[p].coords;
+		auto nextEdge = g[n].coords - g[c].coords;
 		double d = prevEdge.normalized().dot(nextEdge.normalized());
-		return -d;
+		return -d + 1;
 	};
-	auto eulerPath = eulerOpt(graph, angleHeuristic);
+	auto graph = readGraph(argv[1]);
+	if (argc == 3) {
+		std::cerr << "Computing score (lower = better)..." << std::endl;
+		double sum = 0.0;
+		double dist = 0;
+		auto p = readPath(argv[2]);
+		for (size_t i = 1; i < p.size() - 1; ++i) {
+			sum += angleHeuristic(graph, p[i - 1], p[i], p[i + 1]);
+			dist += (graph[p[i]].coords - graph[p[i - 1]].coords).length();
+		}
+		dist += (graph[p.back()].coords - graph[p[p.size() - 2]].coords).length();
+		std::cerr << " total = " << sum << ". Distance = " << dist
+		          << ", normalized cost = " << sum / dist << std::endl;
+		return 0;
+	}
+
+	auto eulerPath = eulerOpt(graph, dumbHeuristic);
 	for (auto i : eulerPath) {
 		std::cout << i << std::endl;
 	}
