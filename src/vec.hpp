@@ -1,3 +1,5 @@
+#ifndef VEC_HPP
+#define VEC_HPP
 #include <algorithm>
 #include <array>
 #include <sstream>
@@ -148,3 +150,4 @@ inline std::ostream &operator<<(std::ostream &out, const vec &ve) {
 	out << "(" << ve.coords[0] << ", " << ve.coords[1] << ", " << ve.coords[2] << ")";
 	return out;
 }
+#endif
