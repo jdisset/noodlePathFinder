@@ -1,3 +1,11 @@
+# Presentation
+
+NoodlePath generates an Euler path that attempts to minimize a given heuristic (such as the sum of angles between edges).
+
+One current limitation is that it only accepts even valence for every nodes of the input graph. I think.
+
+
+
 # Build
 Requirements: a C++14 compiler (g++ 5.1+, clang 3.4+, Visual Studio 2015+)
 
@@ -39,4 +47,6 @@ NODE_ID X Y Z [list of connected NODE_ID]
 3 0.5 2 0 4 2
 4 0 1 0 0 1 2 3
 ```
+
+
 
