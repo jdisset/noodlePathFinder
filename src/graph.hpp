@@ -34,6 +34,7 @@ struct GraphNode {
 
 class Graph {
 	std::vector<GraphNode> graph;
+	size_t nbEdges = 0;
 
  public:
 	static Graph fromFile(std::string filePath) {
@@ -59,6 +60,10 @@ class Graph {
 			}
 			g.graph.push_back(node);
 		}
+
+		for (size_t i = 0; i < g.graph.size(); ++i) assert(g.graph[i].id == i);
+
+		g.computeNumberOfEdges();
 		return g;
 	}
 
@@ -109,11 +114,12 @@ class Graph {
 		return dist;
 	}
 
-	size_t getNumberOfEdges() const {
+	size_t getNumberOfEdges() const { return nbEdges; }
+	void computeNumberOfEdges() {
 		std::unordered_set<std::pair<size_t, size_t>, pair_hash> visitedEdges;
 		for (const auto& n : graph)
 			for (size_t c : n.connected) visitedEdges.insert(std::minmax(n.id, c));
-		return visitedEdges.size();
+		nbEdges = visitedEdges.size();
 	}
 
 	void removeEdge(size_t a, size_t b) {
@@ -185,34 +191,25 @@ class Graph {
 		bool hasUnvisitedEdges = (nextNode >= 0);
 		return std::make_tuple(nextNode, minHeuristic, hasUnvisitedEdges);
 	}
+
 	template <typename F>
-	std::vector<size_t> eulerOpt(const F& heuristic, size_t startNode = 0) {
+	std::vector<size_t> eulerHierholzer(const F& heuristic, size_t startNode = 0) {
 		// a variation of hierholzer's algorithm with an added heuristic function
+		auto odds = listOdds();
+		bool isSemiEulerian = odds.size() > 0;
 
-		const size_t totalEdgeNumber = getNumberOfEdges();
-		// first we check that the graph is (semi)eulerian
-		std::vector<size_t> oddNodes;
-		for (const auto& n : graph)
-			if (n.connected.size() % 2 == 1) oddNodes.push_back(n.id);
-		if (oddNodes.size() > 2) {
-			std::cout << "This graph has " << oddNodes.size() << " odds. Aborting."
-			          << std::endl;
-			for (auto on : oddNodes) {
-				std::cout << " " << on;
-			}
-			return {{}};
-		} else if (oddNodes.size() > 0)
-			startNode = oddNodes[0];
+		if (odds.size() > 0) assert(odds.count(startNode));
 
-		// then we start looking for subcircles
+		// we start looking for subcircles
 		std::vector<size_t> eulerPath;
 		std::unordered_set<std::pair<size_t, size_t>, pair_hash> visitedEdges;
 		eulerPath.push_back(startNode);
 		size_t startNodeIndex = 0;
 
-		while (visitedEdges.size() < totalEdgeNumber) {
+		while (visitedEdges.size() < nbEdges) {
 			std::vector<size_t> subCircle;
 			subCircle.push_back(startNode);
+			bool subTourOK = false;
 			do {
 				// we need the previous node for the heuristic to work
 				size_t prevNode = subCircle.front();
@@ -225,10 +222,21 @@ class Graph {
 				// we find the next node that minimises the heuristic
 				auto bestNext = findBestNext(prevNode, currentNode, visitedEdges, heuristic);
 				size_t nextNode = std::get<0>(bestNext);
-				assert(std::get<2>(bestNext));
 				visitedEdges.insert(std::minmax(currentNode, nextNode));
 				subCircle.push_back(nextNode);
-			} while (subCircle.back() != startNode);
+				if (std::get<2>(bestNext)) {
+					if (subCircle.back() == startNode) {
+						subCircle.pop_back();
+						subTourOK = true;
+					}
+				} else {
+					// we have a subpath, happens in semiEulerian graphs...
+					subTourOK = true;
+					assert(odds.count(currentNode));
+					subCircle.pop_back();
+				}
+
+			} while (!subTourOK);
 
 			// subcircle formed
 			// we first replace startNode in eulerGraph by this new subcircle
@@ -295,6 +303,63 @@ class Graph {
 		} while (gcopy[currentNode].connected.size() > 0);
 
 		return eulerPath;
+	}
+
+	using edge_t = std::pair<size_t, size_t>;
+	using edgeList_t = std::unordered_set<edge_t, pair_hash>;
+	using path_t = std::vector<size_t>;
+	using pathList_t = std::vector<path_t>;
+
+	template <typename F> path_t eulerExhaustive(const F& heuristic, size_t startNode = 0) {
+		// auto hierPath = eulerHierholzer(heuristic, startNode);
+		// double hierScore = computePathScore(hierPath, heuristic);
+		pathList_t pathList;
+		path_t initialPath{static_cast<size_t>(startNode)};
+		edgeList_t edges;
+		double bestScore = 1e20;
+		exhaustiveSearch_inner(pathList, initialPath, edges, 0, heuristic, bestScore);
+		double minScore = 1e10;
+		path_t* bestP = nullptr;
+		for (auto& p : pathList) {
+			auto score = computePathScore(p, heuristic);
+			if (score < minScore) {
+				minScore = score;
+				bestP = &p;
+			}
+		}
+		return *bestP;
+	}
+
+	template <typename F>
+	void exhaustiveSearch_inner(pathList_t& pathList, path_t& currentPath,
+	                            edgeList_t& visitedEdges, double cummulHeuristic,
+	                            const F& heur, double& maxScore) const {
+		// std::cerr << "starting ES. CurrentPath = ";
+		// for (auto& n : *currentPath) std::cerr << n << " ";
+		// std::cerr << std::endl;
+		if (visitedEdges.size() == getNumberOfEdges()) {
+			pathList.push_back(currentPath);
+			maxScore = cummulHeuristic;
+			std::cerr << "found one with score of " << cummulHeuristic << std::endl;
+		} else {
+			const auto& currentNode = graph[currentPath.back()];
+			size_t prevNode = currentPath.size() > 1 ?
+			                      graph[currentPath[currentPath.size() - 2]].id :
+			                      currentNode.id;
+			for (const auto& n : currentNode.connected) {
+				edge_t e = std::minmax(currentNode.id, n);
+				if (!visitedEdges.count(e)) {
+					double h = cummulHeuristic + heur(graph, prevNode, currentNode.id, n);
+					if (h < maxScore) {
+						edgeList_t newVisitedEdges = visitedEdges;
+						newVisitedEdges.insert(e);
+						path_t newPath = currentPath;
+						newPath.push_back(n);
+						exhaustiveSearch_inner(pathList, newPath, newVisitedEdges, h, heur, maxScore);
+					}
+				}
+			}
+		}
 	}
 
 	// std::vector<std::vector<size_t>> getAllCycles(Graph g, size_t currentNode = 0,

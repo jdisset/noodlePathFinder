@@ -120,9 +120,11 @@ int main(int argc, const char** argv) {
 	std::vector<size_t> eulerPath;
 	if (algorithm == "fleury") {
 		eulerPath = graph.eulerFleury(H, startNode);
-	} else if (algorithm == "hierholzer")
-		eulerPath = graph.eulerOpt(H, startNode);
-	else {
+	} else if (algorithm == "hierholzer") {
+		eulerPath = graph.eulerHierholzer(H, startNode);
+	} else if (algorithm == "exhaustive") {
+		eulerPath = graph.eulerExhaustive(H, startNode);
+	} else {
 		std::cerr << "invalid algorithm" << std::endl;
 		return 1;
 	}
