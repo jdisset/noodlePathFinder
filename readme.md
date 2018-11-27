@@ -16,9 +16,9 @@ cd build && cmake .. && make
 
 # Usage
 
-`./noodlepath graphFile  > pathFile` to generate a pathFile from a graphFile
+`./noodlepath -g graphFile > pathFile` to generate a pathFile from a graphFile
 
-`./noodlepath graphFile pathFile` to print out an evaluation of the pathFile (turning costs + total distance) 
+`./noodlepath -g graphFile -p pathFile` to print out an evaluation of the pathFile (turning costs + total distance) 
 
 Complete Usage:
   NoodlePath [OPTION...]
@@ -41,8 +41,8 @@ NODE_ID X Y Z [list of connected NODE_ID]
 
 ## example
 ```
-0 0 0 0 1 2 4
-1 1 0 0 0 4 2
+0 0 0 0 2 4
+1 1 0 0 4 2
 2 1 1 0 3 4 0 1
 3 0.5 2 0 4 2
 4 0 1 0 0 1 2 3
